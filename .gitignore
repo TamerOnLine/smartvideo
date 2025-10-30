@@ -172,3 +172,4 @@ env-info.txt
 bin/
 uv.lock
 data/
+.streamlit/secrets.toml
