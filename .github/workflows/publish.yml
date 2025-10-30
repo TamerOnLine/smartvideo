@@ -3,9 +3,6 @@ name: 📦 Publish SmartVideo to PyPI
 on:
   release:
     types: [published]
-  push:
-    tags:
-      - "v*.*.*"
   workflow_dispatch:
 
 jobs:
@@ -32,27 +29,13 @@ jobs:
           python -V
           uv --version
 
-      # (Optional) If you prefer downloading ffmpeg/ffprobe during CI instead of keeping them in repo:
-      # - name: Include FFmpeg binaries
-      #   run: |
-      #     mkdir -p src/smartvideo/bin
-      #     curl -L -o ffmpeg.zip https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-release-essentials.zip
-      #     unzip -o ffmpeg.zip -d ffmpeg
-      #     find ffmpeg -type f -name "ffmpeg.exe" -exec cp {} src/smartvideo/bin/ \;
-      #     find ffmpeg -type f -name "ffprobe.exe" -exec cp {} src/smartvideo/bin/ \;
-      #     ls -lh src/smartvideo/bin/
-
       - name: Build (wheel + sdist)
         run: uv build
 
-      - name: Create venv
-        run: uv venv
-
-      - name: Smoke test the wheel (venv)
-        shell: bash
+      # ✅ FIXED STEP — use --system to avoid the “no venv” error
+      - name: Smoke test the wheel
         run: |
-          source .venv/bin/activate
-          uv pip install --force-reinstall dist/*.whl
+          uv pip install --system --force-reinstall dist/*.whl
           python -c "import smartvideo; print('✅ SmartVideo import OK')"
 
       - name: Publish to PyPI (Trusted Publishing)
