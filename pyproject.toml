@@ -1,0 +1,43 @@
+[project]
+name = "smart-video"
+version = "0.1.0"
+description = "Smart Video Player: FastAPI backend + Streamlit UI + HTML5 player"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Tamer", email = "you@example.com" }]
+license = { text = "MIT" }
+
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+  "python-multipart>=0.0.9",
+  "starlette>=0.40",
+  "aiofiles>=24.1",
+  "requests>=2.32",
+  "streamlit>=1.39",
+  "opencv-python-headless>=4.10",
+  "ffmpeg-python>=0.2.0",
+  "moviepy>=1.0.3",
+]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.6",
+  "pytest>=8.3",
+  "httpx>=0.27",
+]
+
+[project.scripts]
+sv-api = "sv.cli:run_api"
+sv-ui  = "sv.cli:run_ui"
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
