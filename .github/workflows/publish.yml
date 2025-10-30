@@ -13,33 +13,41 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout
+      - name: 🧩 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 🐍 Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install uv
+      - name: ⚙️ Install uv
         run: python -m pip install -U uv
 
-      - name: Show versions
+      - name: 🧾 Show versions
         run: |
           python -V
           uv --version
 
-      - name: Build (wheel + sdist)
+      # (Optional) Download FFmpeg automatically during CI instead of keeping it in repo
+      # - name: 🎬 Include FFmpeg binaries
+      #   run: |
+      #     mkdir -p src/smartvideo/bin
+      #     curl -L -o ffmpeg.zip https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-release-essentials.zip
+      #     unzip -o ffmpeg.zip -d ffmpeg
+      #     find ffmpeg -type f -name "ffmpeg.exe" -exec cp {} src/smartvideo/bin/ \;
+      #     find ffmpeg -type f -name "ffprobe.exe" -exec cp {} src/smartvideo/bin/ \;
+      #     ls -lh src/smartvideo/bin/
+
+      - name: 🏗️ Build package (wheel + sdist)
         run: uv build
 
-      - name: Create venv
-        run: uv venv
-      - name: Smoke test the wheel (venv)
-        shell: bash
+      # ✅ FIXED: Install into system environment instead of missing venv
+      - name: 🧪 Smoke test the wheel
         run: |
-          source .venv/bin/activate
-          uv pip install --force-reinstall dist/*.whl
+          echo "Installing SmartVideo wheel in system environment..."
+          uv pip install --system --force-reinstall dist/*.whl
           python -c "import smartvideo; print('✅ SmartVideo import OK')"
 
-      - name: Publish to PyPI (Trusted Publishing)
+      - name: 🚀 Publish to PyPI (Trusted Publishing)
         run: uv publish
