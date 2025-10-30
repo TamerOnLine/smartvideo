@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.1] - 2025-10-30
+### Added
+- English-language PEP 8–compliant docstrings and comments for all core CLI and config functions.
+- Automatic directory creation logic on first import of the config module.
+- CLI flags for `--port` and `--max-upload-mb` in the `svui` command.
+
+### Changed
+- Replaced all Arabic comments and strings with English to maintain consistency and accessibility.
+- Refactored CLI argument parsing for clarity and maintainability.
+
+### Fixed
+- Corrected fallback logic for `STREAMLIT_SERVER_MAX_UPLOAD_SIZE` environment variable when not provided.
+
+---
+
 ## [0.1.0] - 2025-10-30
 ### Added
 - 🎬 Initial public release of **SmartVideo** — FastAPI + Streamlit video toolkit.

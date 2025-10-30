@@ -1,6 +1,6 @@
 [project]
 name = "smartvideo"
-version = "0.1.0"
+version = "0.1.1"
 description = "🎬 Smart Video Player — FastAPI backend + Streamlit UI + HTML5 player"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,6 +52,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# 🔹 Include bundled binaries (ffmpeg, ffprobe) inside the package
+# 🔹 Include package data (config + binaries) inside the wheel
 [tool.setuptools.package-data]
-"smartvideo" = ["bin/*"]
+smartvideo = ["bin/*"]
