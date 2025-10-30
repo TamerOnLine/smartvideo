@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.1.5] - 2025-10-30
+### Added
+- Fallback mirrors for Windows FFmpeg download (release + git essentials).
+- Progress and size logging during download with clearer messages.
+
+### Changed
+- Hardened resolver flow (ENV → PATH → packaged → cached → auto-download).
+- More informative errors and cleanup of temp files after extraction.
+
+### Fixed
+- Correct FFmpeg URL (fixed 404) and prevented 500 on first upload.
+- Reliable extraction & caching in `%LOCALAPPDATA%/SmartVideo/bin`.
+
+---
+
 ## [0.1.4] - 2025-10-30
 ### Added
 - Bundled `ffmpeg.exe` and `ffprobe.exe` directly inside the SmartVideo package (`smartvideo/bin/`).

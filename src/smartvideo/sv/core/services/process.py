@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 process.py — SmartVideo runtime FFmpeg resolver & helpers
-- Discovery order: ENV -> PATH -> packaged (if exists) -> auto-download to data dir
+----------------------------------------------------------
+- Discovery order: ENV → PATH → packaged (if exists) → cached → auto-download
 - Data dir (Windows): %LOCALAPPDATA%/SmartVideo/bin
 
 Environment overrides:
@@ -29,21 +30,20 @@ from platformdirs import PlatformDirs
 # -----------------------------------------------------------------------------
 logger = logging.getLogger("smartvideo")
 if not logger.handlers:
-    # لا تكرر الإضافة إذا كان المستهلك قد ضبط اللوغر من قبل
-    _h = logging.StreamHandler()
-    _fmt = logging.Formatter("[%(levelname)s] smartvideo: %(message)s")
-    _h.setFormatter(_fmt)
-    logger.addHandler(_h)
-    # اجعل المستوى INFO افتراضيًا (يمكن للتطبيق تغييره لاحقًا)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[%(levelname)s] smartvideo: %(message)s"))
+    logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
 APP_NAME = "SmartVideo"
 APP_AUTHOR = "TamerOnLine"
 
+
 # -----------------------------------------------------------------------------
-# Paths
+# Helper paths
 # -----------------------------------------------------------------------------
 def _data_bin_dir() -> Path:
+    """Return user data bin dir (e.g., AppData/SmartVideo/bin)."""
     d = PlatformDirs(APP_NAME, APP_AUTHOR)
     p = Path(d.user_data_dir) / "bin"
     p.mkdir(parents=True, exist_ok=True)
@@ -51,60 +51,77 @@ def _data_bin_dir() -> Path:
 
 
 def _pkg_bin(name: str) -> Path:
-    # ملاحظة: غالبًا لن تُشحن داخل العجلة لتجنب الحجم؛ لا مشكلة لو كان المجلد فارغًا
+    """Return packaged binary (if shipped inside the wheel)."""
     return resources.files("smartvideo").joinpath("bin").joinpath(name)  # type: ignore[arg-type]
 
 
 def _exe_names() -> Tuple[str, str]:
+    """Return executable names depending on OS."""
     if sys.platform.startswith("win"):
         return "ffmpeg.exe", "ffprobe.exe"
     return "ffmpeg", "ffprobe"
 
+
 # -----------------------------------------------------------------------------
-# Downloads (Windows)
+# FFmpeg download (Windows)
 # -----------------------------------------------------------------------------
-def _win_ffmpeg_zip_url() -> str:
-    # Windows static build (essentials)
-    return "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-release-essentials.zip"
+def _win_ffmpeg_zip_urls() -> list[str]:
+    """Mirrors for Windows FFmpeg builds."""
+    return [
+        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",  # ✅ Correct path
+        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-essentials.zip",      # fallback
+    ]
 
 
-def _download(url: str, dest: Path, timeout: int = 60) -> None:
-    logger.info(f"Downloading FFmpeg bundle from: {url}")
+def _download_first_ok(urls: list[str], dest: Path, timeout: int = 60) -> str:
+    """Try downloading from multiple mirrors until success."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(url, stream=True, timeout=timeout) as r:
-        r.raise_for_status()
-        total = int(r.headers.get("Content-Length", "0") or 0)
-        read = 0
-        chunk = 1 << 20  # 1 MB
-        with open(dest, "wb") as f:
-            for part in r.iter_content(chunk_size=chunk):
-                if not part:
-                    continue
-                f.write(part)
-                read += len(part)
-                if total:
-                    pct = (read / total) * 100
-                    logger.info(f"  ... {read/1e6:.1f} MB / {total/1e6:.1f} MB ({pct:.0f}%)")
-    logger.info(f"Saved: {dest} ({dest.stat().st_size/1e6:.1f} MB)")
+    last_err = None
+    for url in urls:
+        logger.info(f"Downloading FFmpeg bundle from: {url}")
+        try:
+            with requests.get(url, stream=True, timeout=timeout, headers={"User-Agent": "smartvideo/1.0"}) as r:
+                r.raise_for_status()
+                total = int(r.headers.get("Content-Length", "0") or 0)
+                read = 0
+                chunk = 1 << 20  # 1 MB
+                with open(dest, "wb") as f:
+                    for part in r.iter_content(chunk_size=chunk):
+                        if not part:
+                            continue
+                        f.write(part)
+                        read += len(part)
+                        if total:
+                            pct = (read / total) * 100
+                            logger.info(f"  ... {read/1e6:.1f} MB / {total/1e6:.1f} MB ({pct:.0f}%)")
+            logger.info(f"Saved: {dest} ({dest.stat().st_size/1e6:.1f} MB)")
+            return url
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Failed to download from {url}: {e}")
+            try:
+                if dest.exists():
+                    dest.unlink()
+            except Exception:
+                pass
+    raise RuntimeError(f"Failed to download FFmpeg from all mirrors: {urls}\nLast error: {last_err}")
 
 
 def _ensure_win_binaries_to(dir_bin: Path) -> Tuple[Path, Path]:
-    """
-    Download a Windows FFmpeg zip, extract ffmpeg.exe & ffprobe.exe into dir_bin.
-    Returns paths to the two executables.
-    """
+    """Download and extract ffmpeg.exe + ffprobe.exe to dir_bin."""
     zip_path = dir_bin / "ffmpeg.zip"
-    _download(_win_ffmpeg_zip_url(), zip_path)
+    _download_first_ok(_win_ffmpeg_zip_urls(), zip_path)
 
     logger.info("Extracting FFmpeg...")
     with zipfile.ZipFile(zip_path, "r") as zf:
         ffmpeg_member = next((m for m in zf.namelist() if m.endswith("/bin/ffmpeg.exe")), None)
         ffprobe_member = next((m for m in zf.namelist() if m.endswith("/bin/ffprobe.exe")), None)
         if not ffmpeg_member or not ffprobe_member:
-            raise RuntimeError("ffmpeg.zip does not contain expected binaries (ffmpeg.exe/ffprobe.exe).")
+            raise RuntimeError("ffmpeg.zip does not contain expected binaries.")
 
         zf.extract(ffmpeg_member, dir_bin)
         zf.extract(ffprobe_member, dir_bin)
+
         src_ffmpeg = dir_bin / ffmpeg_member
         src_ffprobe = dir_bin / ffprobe_member
 
@@ -114,10 +131,10 @@ def _ensure_win_binaries_to(dir_bin: Path) -> Tuple[Path, Path]:
     final_ffmpeg.write_bytes(src_ffmpeg.read_bytes())
     final_ffprobe.write_bytes(src_ffprobe.read_bytes())
 
-    # تنظيف الشجرة المفكوكة والملف المضغوط
+    # Cleanup
     try:
         shutil.rmtree(dir_bin / ffmpeg_member.split("/")[0], ignore_errors=True)
-        zip_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+        zip_path.unlink(missing_ok=True)
     except Exception as e:
         logger.debug(f"Cleanup warning: {e}")
 
@@ -127,45 +144,39 @@ def _ensure_win_binaries_to(dir_bin: Path) -> Tuple[Path, Path]:
 
 
 def _auto_download(dir_bin: Path) -> Tuple[Path, Path]:
-    """
-    Download platform-specific binaries into dir_bin and return their paths.
-    """
+    """Platform-specific download fallback."""
     if sys.platform.startswith("win"):
         return _ensure_win_binaries_to(dir_bin)
-
     raise FileNotFoundError(
-        "FFmpeg not found and auto-download is only implemented for Windows currently. "
-        "Please install FFmpeg via your package manager or set SMARTVIDEO_FFMPEG / SMARTVIDEO_FFPROBE."
+        "FFmpeg not found and auto-download is implemented only for Windows.\n"
+        "Please install FFmpeg manually or set SMARTVIDEO_FFMPEG / SMARTVIDEO_FFPROBE."
     )
 
+
 # -----------------------------------------------------------------------------
-# Resolver
+# Binary resolver
 # -----------------------------------------------------------------------------
 def _find_tool(name: str, env_var: str, packaged: Path, data_bin: Path) -> str:
-    # 1) ENV override
+    """Resolve binary from ENV → PATH → packaged → cached → auto-download."""
     env = os.getenv(env_var)
     if env and Path(env).exists():
-        logger.info(f"Using {name} from ENV: {env_var}={env}")
+        logger.info(f"Using {name} from ENV: {env}")
         return env
 
-    # 2) PATH
     found = shutil.which(name)
     if found:
         logger.info(f"Using {name} from PATH: {found}")
         return found
 
-    # 3) Packaged (if present)
     if packaged.exists():
         logger.info(f"Using packaged {name}: {packaged}")
         return str(packaged)
 
-    # 4) Cached in data dir?
-    candidate = data_bin / name
-    if candidate.exists():
-        logger.info(f"Using cached {name} in data dir: {candidate}")
-        return str(candidate)
+    cached = data_bin / name
+    if cached.exists():
+        logger.info(f"Using cached {name}: {cached}")
+        return str(cached)
 
-    # 5) Auto-download (Windows)
     logger.info(f"{name} not found (ENV/PATH/packaged/cache). Auto-downloading...")
     if sys.platform.startswith("win"):
         ffmpeg_p, ffprobe_p = _auto_download(data_bin)
@@ -179,18 +190,16 @@ def _find_tool(name: str, env_var: str, packaged: Path, data_bin: Path) -> str:
 
 
 def ensure_binaries() -> Tuple[str, str]:
-    """
-    Ensure ffmpeg & ffprobe exist (ENV -> PATH -> packaged -> auto-download to data dir).
-    Returns absolute string paths.
-    """
+    """Ensure ffmpeg & ffprobe exist (ENV → PATH → packaged → auto-download)."""
     data_bin = _data_bin_dir()
     ffmpeg_n, ffprobe_n = _exe_names()
     ffmpeg = _find_tool(ffmpeg_n, "SMARTVIDEO_FFMPEG", _pkg_bin(ffmpeg_n), data_bin)
     ffprobe = _find_tool(ffprobe_n, "SMARTVIDEO_FFPROBE", _pkg_bin(ffprobe_n), data_bin)
     return ffmpeg, ffprobe
 
+
 # -----------------------------------------------------------------------------
-# Helpers
+# Helper to run commands
 # -----------------------------------------------------------------------------
 def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     logger.info("Running: " + " ".join(cmd))
@@ -201,12 +210,15 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
         raise RuntimeError("Command failed (see logs above).")
     return proc
 
+
 # -----------------------------------------------------------------------------
 # Public operations
 # -----------------------------------------------------------------------------
 def probe_duration(video: Path) -> float:
+    """Return video duration in seconds."""
     if not Path(video).exists():
         raise FileNotFoundError(f"Video not found: {video}")
+
     _, ffprobe = ensure_binaries()
     proc = _run([
         ffprobe, "-v", "error", "-select_streams", "v:0",
@@ -227,6 +239,7 @@ def run_ffmpeg_extract_clip(
     end: Optional[float] = None,
     codec_copy: bool = True,
 ) -> None:
+    """Extract a clip from `src` and save to `dst`."""
     if not Path(src).exists():
         raise FileNotFoundError(f"Source video not found: {src}")
 
