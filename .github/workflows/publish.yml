@@ -47,7 +47,7 @@ jobs:
 
       - name: Smoke test the wheel
         run: |
-          uv pip install --force-reinstall dist/*.whl
+          uv pip install --system --force-reinstall dist/*.whl
           python -c "import smartvideo; print('✅ SmartVideo import OK')"
 
       - name: Publish to PyPI (Trusted Publishing)
