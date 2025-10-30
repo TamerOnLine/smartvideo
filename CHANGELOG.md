@@ -5,6 +5,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.1.4] - 2025-10-30
+### Added
+- Bundled `ffmpeg.exe` and `ffprobe.exe` directly inside the SmartVideo package (`smartvideo/bin/`).
+- Automatic binary discovery system (ENV → PATH → packaged) for seamless runtime behavior.
+- Wheel packaging now includes `bin/*` files for instant, out-of-the-box video processing.
+
+### Changed
+- Updated `process.py` with unified binary resolver and improved cross-platform support.
+- Adjusted `.gitignore` to allow tracking of embedded FFmpeg executables.
+- Updated `pyproject.toml` to ensure packaged binaries are included in the final wheel.
+
+### Fixed
+- Eliminated “Required FFmpeg tools not found” runtime error by shipping built-in binaries.
+- Ensured `ensure_binaries()` gracefully falls back to packaged versions when environment paths are missing.
+
+---
+
 ## [0.1.3] - 2025-10-30
 ### Added
 - GitHub Actions workflow with manual trigger (`workflow_dispatch`) alongside release trigger.

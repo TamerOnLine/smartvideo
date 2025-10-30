@@ -1,151 +1,221 @@
 # -*- coding: utf-8 -*-
 """
-process.py - Video processing module for the SmartVideo library
----------------------------------------------------------------
-- Depends on FFmpeg and FFprobe included inside smartvideo/bin/
-- Supports override via environment variables:
+process.py — Video processing utilities for SmartVideo
+-----------------------------------------------------
+- Relies on FFmpeg and FFprobe.
+- Discovery order: ENV → system PATH → packaged binaries inside the wheel.
+- Packaged paths: smartvideo/bin/ffmpeg(.exe), smartvideo/bin/ffprobe(.exe)
+
+Environment overrides:
     SMARTVIDEO_FFMPEG
     SMARTVIDEO_FFPROBE
-- Available functions:
-    - ensure_binaries()         ← Verifies presence of tools
-    - probe_duration()          ← Calculates video duration
-    - run_ffmpeg_extract_clip() ← Extracts video clip
-    - copy_file()               ← Copies files
+
+Public API:
+    ensure_binaries() -> tuple[str, str]
+    probe_duration(video: Path) -> float
+    run_ffmpeg_extract_clip(src: Path, dst: Path, start: float|None, end: float|None, codec_copy: bool) -> None
+    copy_file(src: Path, dst: Path) -> None
 """
 
-from pathlib import Path
-from importlib import resources
-import subprocess
-import shutil
+from __future__ import annotations
+
 import os
 import sys
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Tuple, Optional
+from importlib import resources
 
 
-def _exe(name: str) -> str:
-    """Return the correct executable name depending on the OS."""
-    return f"{name}.exe" if sys.platform.startswith("win") else name
+# -----------------------------------------------------------------------------
+# Binary discovery
+# -----------------------------------------------------------------------------
+
+def _pkg_bin(name: str) -> Path:
+    """Return the absolute path to a packaged binary under smartvideo/bin/."""
+    # resources.files available in Python 3.11+; shipped with Python 3.12 in your project
+    return resources.files("smartvideo").joinpath("bin").joinpath(name)  # type: ignore[arg-type]
 
 
-def _bin_path(filename: str) -> Path:
+def _pick_names() -> Tuple[str, str]:
+    """Executable names depending on OS."""
+    if sys.platform.startswith("win"):
+        return "ffmpeg.exe", "ffprobe.exe"
+    return "ffmpeg", "ffprobe"
+
+
+def _find_tool(name: str, env_var: str, packaged: Path) -> str:
     """
-    Return the full path of the binary inside the package.
-
-    Example: smartvideo/bin/ffmpeg.exe
+    Resolve a tool path by:
+      1) explicit ENV var
+      2) system PATH
+      3) packaged fallback
     """
-    try:
-        return resources.files("smartvideo").joinpath("bin").joinpath(filename)
-    except Exception:
-        # Fallback for development environments
-        return Path(__file__).resolve().parents[3] / "bin" / filename
+    # 1) Environment override
+    env = os.getenv(env_var)
+    if env:
+        p = Path(env)
+        if p.exists():
+            return str(p)
+
+    # 2) System PATH
+    found = shutil.which(name)
+    if found:
+        return found
+
+    # 3) Packaged fallback
+    if packaged.exists():
+        return str(packaged)
+
+    raise FileNotFoundError(
+        f"Required tool not found: {name}\n"
+        f"Set {env_var}, install FFmpeg, or include it at: {packaged}"
+    )
 
 
-# Final binary paths (with environment variable support)
-FFMPEG_PATH = os.getenv("SMARTVIDEO_FFMPEG", str(_bin_path(_exe("ffmpeg"))))
-FFPROBE_PATH = os.getenv("SMARTVIDEO_FFPROBE", str(_bin_path(_exe("ffprobe"))))
-
-
-def ensure_binaries():
+def ensure_binaries() -> Tuple[str, str]:
     """
-    Ensure that ffmpeg and ffprobe exist within the package or the system.
-
-    Raises:
-        FileNotFoundError: If required FFmpeg tools are missing.
+    Ensure both ffmpeg and ffprobe are available and return their absolute paths.
+    Resolution order: ENV → PATH → packaged wheel.
     """
-    missing = []
-    for exe in [FFMPEG_PATH, FFPROBE_PATH]:
-        if not Path(exe).exists():
-            missing.append(exe)
+    ffmpeg_name, ffprobe_name = _pick_names()
+    ffmpeg_path = _find_tool(ffmpeg_name, "SMARTVIDEO_FFMPEG", _pkg_bin(ffmpeg_name))
+    ffprobe_path = _find_tool(ffprobe_name, "SMARTVIDEO_FFPROBE", _pkg_bin(ffprobe_name))
+    return ffmpeg_path, ffprobe_path
 
-    if missing:
-        raise FileNotFoundError(
-            "Required FFmpeg tools not found:\n"
-            + "\n".join(f" - {m}" for m in missing)
-            + "\nDownload FFmpeg from: https://www.gyan.dev/ffmpeg/builds/\n"
-              "Or set paths using SMARTVIDEO_FFMPEG / SMARTVIDEO_FFPROBE."
+
+# Optionally expose globals for convenience (lazy-resolved at import)
+try:
+    FFMPEG_PATH, FFPROBE_PATH = ensure_binaries()
+except Exception:
+    # Don't crash at import-time; endpoints will call ensure_binaries() anyway.
+    FFMPEG_PATH = os.getenv("SMARTVIDEO_FFMPEG", "")
+    FFPROBE_PATH = os.getenv("SMARTVIDEO_FFPROBE", "")
+
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+
+def _run(cmd: list[str]) -> subprocess.CompletedProcess:
+    """Run a subprocess and raise a helpful error if it fails."""
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "Command failed:\n"
+            + " ".join(cmd)
+            + "\n--- STDOUT ---\n"
+            + proc.stdout
+            + "\n--- STDERR ---\n"
+            + proc.stderr
         )
+    return proc
 
 
-def probe_duration(src: Path) -> float | None:
+# -----------------------------------------------------------------------------
+# Probing & processing
+# -----------------------------------------------------------------------------
+
+def probe_duration(video: Path) -> float:
     """
-    Calculate the duration of a video in seconds using ffprobe.
-
-    Args:
-        src (Path): Path to the video file.
-
-    Returns:
-        float | None: Duration in seconds if successful; otherwise None.
+    Return the duration (in seconds) of a video file using ffprobe.
     """
-    ensure_binaries()
-    try:
-        result = subprocess.run(
-            [
-                FFMPEG_PATH.replace("ffmpeg", "ffprobe"),
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                str(src)
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
-        duration_str = result.stdout.strip()
-        return float(duration_str) if duration_str else None
-    except subprocess.CalledProcessError as e:
-        print(f"[warn] ffprobe error: {e.stderr}")
-        return None
-    except Exception as e:
-        print(f"[warn] Unexpected error in probe_duration: {e}")
-        return None
+    if not Path(video).exists():
+        raise FileNotFoundError(f"Video not found: {video}")
 
-
-def run_ffmpeg_extract_clip(src: Path, dst: Path, start: float, duration: float) -> None:
-    """
-    Extract a clip from a video using FFmpeg without re-encoding.
-
-    Args:
-        src (Path): Source video path.
-        dst (Path): Destination path for the extracted clip.
-        start (float): Start time in seconds.
-        duration (float): Duration of the clip in seconds.
-
-    Raises:
-        subprocess.CalledProcessError: If FFmpeg command fails.
-        Exception: For any unexpected errors.
-    """
-    ensure_binaries()
-    dst.parent.mkdir(parents=True, exist_ok=True)
+    _, ffprobe = ensure_binaries()
 
     cmd = [
-        FFMPEG_PATH,
-        "-y",
-        "-ss", str(start),
-        "-i", str(src),
-        "-t", str(duration),
-        "-c", "copy",
-        str(dst)
+        ffprobe,
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(video),
     ]
+    proc = _run(cmd)
 
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        print(f"[ok] Clip extracted successfully: {dst}")
-    except subprocess.CalledProcessError as e:
-        print(f"[error] ffmpeg failed:\n{e.stderr.decode(errors='ignore') if hasattr(e.stderr, 'decode') else e}")
-        raise
-    except Exception as e:
-        print(f"[error] Unexpected error in run_ffmpeg_extract_clip: {e}")
-        raise
+        sec = float(proc.stdout.strip())
+    except ValueError as e:
+        raise RuntimeError(f"Unable to parse duration for {video!s}") from e
+
+    return sec
 
 
-def copy_file(src: Path, dst: Path):
+def run_ffmpeg_extract_clip(
+    src: Path,
+    dst: Path,
+    start: Optional[float] = None,
+    end: Optional[float] = None,
+    codec_copy: bool = True,
+) -> None:
     """
-    Copy a file to a specified destination, creating directories if needed.
+    Extract a clip from `src` and save to `dst`.
 
     Args:
-        src (Path): Source file path.
-        dst (Path): Destination file path.
+        src: Source video path.
+        dst: Output video path (created/overwritten).
+        start: start time in seconds (optional).
+        end: end time in seconds (optional). If provided with start, uses -to; if only end, uses -t=end.
+        codec_copy: if True, use stream copy (-c copy); otherwise transcode to H.264/AAC.
+
+    Notes:
+        - If only `start` is provided → from start to end-of-file.
+        - If `start` and `end` provided → clip between them.
+        - If only `end` provided → first `end` seconds from the beginning.
     """
+    if not Path(src).exists():
+        raise FileNotFoundError(f"Source video not found: {src}")
+
+    ffmpeg, _ = ensure_binaries()
+
+    # Build ffmpeg args
+    args: list[str] = [ffmpeg, "-y"]
+
+    # Time arguments
+    if start is not None and start >= 0:
+        # Place -ss before -i for faster seeking
+        args += ["-ss", f"{start}"]
+
+    args += ["-i", str(src)]
+
+    if start is not None and end is not None and end >= start:
+        # Use -to with absolute end-time relative to input start
+        args += ["-to", f"{end}"]
+    elif start is None and end is not None and end >= 0:
+        # Extract first `end` seconds
+        args += ["-t", f"{end}"]
+
+    # Codec settings
+    if codec_copy:
+        args += ["-c", "copy"]
+    else:
+        # Reasonable defaults for wide compatibility
+        args += [
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+        ]
+
+    # Ensure destination directory exists
+    dst = Path(dst)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    args.append(str(dst))
+
+    _run(args)
+
+
+# -----------------------------------------------------------------------------
+# File utilities
+# -----------------------------------------------------------------------------
+
+def copy_file(src: Path, dst: Path) -> None:
+    """
+    Copy a file to destination, creating directories if needed.
+    """
+    if not Path(src).exists():
+        raise FileNotFoundError(f"Source file not found: {src}")
+    dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
-    print(f"[info] Copied: {src.name} → {dst}")

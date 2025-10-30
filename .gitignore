@@ -169,7 +169,9 @@ Thumbs.db
 
 # Generated env info 
 env-info.txt
-bin/
+!src/smartvideo/bin/ffmpeg.exe
+!src/smartvideo/bin/ffprobe.exe
+
 uv.lock
 data/
 .streamlit/secrets.toml
