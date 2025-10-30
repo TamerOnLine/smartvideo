@@ -20,6 +20,7 @@ dependencies = [
   "opencv-python-headless>=4.10",
   "ffmpeg-python>=0.2.0",
   "moviepy>=1.0.3",
+  "platformdirs>=4.3",
 ]
 
 [dependency-groups]
@@ -51,7 +52,3 @@ build-backend = "setuptools.build_meta"
 # 🔹 Where to find the source code
 [tool.setuptools.packages.find]
 where = ["src"]
-
-# 🔹 Include package data (config + binaries) inside the wheel
-[tool.setuptools.package-data]
-smartvideo = ["bin/*"]
