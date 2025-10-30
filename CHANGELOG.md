@@ -8,16 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1] - 2025-10-30
 ### Added
-- English-language PEP 8–compliant docstrings and comments for all core CLI and config functions.
-- Automatic directory creation logic on first import of the config module.
-- CLI flags for `--port` and `--max-upload-mb` in the `svui` command.
+- Automatic creation of runtime folders (`data/uploads`, `data/outputs`) on first launch.
+- Environment variable `SMARTVIDEO_DATA_DIR` for custom storage path.
+- Unified CLI launcher (`svui`, `svapi`) with dynamic upload-size control.
+- Config system (`sv/core/config.py`) for consistent data paths.
 
 ### Changed
-- Replaced all Arabic comments and strings with English to maintain consistency and accessibility.
-- Refactored CLI argument parsing for clarity and maintainability.
+- Moved `.streamlit/` folder to project root for proper Streamlit detection.
+- Adopted `src/` layout for cleaner packaging and import safety.
+- Simplified `pyproject.toml` with consolidated `package-data` section.
 
 ### Fixed
-- Corrected fallback logic for `STREAMLIT_SERVER_MAX_UPLOAD_SIZE` environment variable when not provided.
+- Upload limit error (“File must be 200 MB or smaller”) removed permanently.
+- API import path corrected (`smartvideo.sv.api:app`).
+- Removed redundant platformdirs dependency for lighter package size.
 
 ---
 
