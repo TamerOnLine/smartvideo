@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.1.2] - 2025-10-30
+### Added
+- Added automated PyPI publishing workflow via GitHub Actions (Trusted Publishing).
+- Added optional FFmpeg auto-download step in CI to embed binaries inside the package.
+- Included `uv build` + `uv publish` integration for reproducible releases.
+- Added version and build information logging in CI for easier debugging.
+
+### Changed
+- Switched to `actions/setup-python@v5` for cleaner VS Code validation (no warnings).
+- Simplified release workflow triggers (`release`, `push tags`, and `manual run` combined).
+- Improved project structure for cross-platform packaging consistency.
+
+### Fixed
+- Removed invalid VS Code YAML warnings (`python-version` / `python` input issues).
+- Ensured FFmpeg binaries are correctly detected and packaged in build artifacts.
+
+---
+
 
 ## [0.1.1] - 2025-10-30
 ### Added
