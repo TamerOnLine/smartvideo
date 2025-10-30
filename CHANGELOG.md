@@ -5,6 +5,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.1.6] - 2025-10-30
+### Added
+- Added automatic FFmpeg/FFprobe download for **Linux** and **macOS** (static builds & universal binaries).
+- Added architecture detection (x86_64, arm64, aarch64) with safe mirror fallback.
+- Added cross-platform chmod handling to ensure executables are runnable.
+
+### Changed
+- Unified `ensure_binaries()` logic for Windows/Linux/macOS under one consistent pipeline.
+- Improved logging messages during download and extraction (shows MB progress).
+
+### Fixed
+- Cleanup routines now safely remove temporary archives and extracted folders.
+- Ensured extracted FFmpeg binaries retain executable permissions across systems.
+
+---
+
 ## [0.1.5] - 2025-10-30
 ### Added
 - Fallback mirrors for Windows FFmpeg download (release + git essentials).

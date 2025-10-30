@@ -3,7 +3,9 @@
 process.py — SmartVideo runtime FFmpeg resolver & helpers
 ----------------------------------------------------------
 - Discovery order: ENV → PATH → packaged (if exists) → cached → auto-download
-- Data dir (Windows): %LOCALAPPDATA%/SmartVideo/bin
+- Data dir:
+    - Windows:  %LOCALAPPDATA%/SmartVideo/bin
+    - Linux/Mac: ~/.local/share/SmartVideo/bin  (حسب platformdirs)
 
 Environment overrides:
     SMARTVIDEO_FFMPEG
@@ -17,7 +19,9 @@ import sys
 import shutil
 import subprocess
 import zipfile
+import tarfile
 import logging
+import platform
 from pathlib import Path
 from typing import Tuple, Optional
 from importlib import resources
@@ -62,18 +66,18 @@ def _exe_names() -> Tuple[str, str]:
     return "ffmpeg", "ffprobe"
 
 
-# -----------------------------------------------------------------------------
-# FFmpeg download (Windows)
-# -----------------------------------------------------------------------------
-def _win_ffmpeg_zip_urls() -> list[str]:
-    """Mirrors for Windows FFmpeg builds."""
-    return [
-        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",  # ✅ Correct path
-        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-essentials.zip",      # fallback
-    ]
+def _chmod_x(p: Path) -> None:
+    try:
+        mode = p.stat().st_mode
+        p.chmod(mode | 0o755)
+    except Exception as e:
+        logger.warning(f"Failed to chmod +x on {p}: {e}")
 
 
-def _download_first_ok(urls: list[str], dest: Path, timeout: int = 60) -> str:
+# -----------------------------------------------------------------------------
+# Generic download helper
+# -----------------------------------------------------------------------------
+def _download_first_ok(urls: list[str], dest: Path, timeout: int = 120) -> str:
     """Try downloading from multiple mirrors until success."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     last_err = None
@@ -107,12 +111,23 @@ def _download_first_ok(urls: list[str], dest: Path, timeout: int = 60) -> str:
     raise RuntimeError(f"Failed to download FFmpeg from all mirrors: {urls}\nLast error: {last_err}")
 
 
+# -----------------------------------------------------------------------------
+# Windows auto-download
+# -----------------------------------------------------------------------------
+def _win_ffmpeg_zip_urls() -> list[str]:
+    """Mirrors for Windows FFmpeg builds."""
+    return [
+        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-essentials.zip",
+    ]
+
+
 def _ensure_win_binaries_to(dir_bin: Path) -> Tuple[Path, Path]:
     """Download and extract ffmpeg.exe + ffprobe.exe to dir_bin."""
     zip_path = dir_bin / "ffmpeg.zip"
     _download_first_ok(_win_ffmpeg_zip_urls(), zip_path)
 
-    logger.info("Extracting FFmpeg...")
+    logger.info("Extracting FFmpeg (Windows)...")
     with zipfile.ZipFile(zip_path, "r") as zf:
         ffmpeg_member = next((m for m in zf.namelist() if m.endswith("/bin/ffmpeg.exe")), None)
         ffprobe_member = next((m for m in zf.namelist() if m.endswith("/bin/ffprobe.exe")), None)
@@ -143,18 +158,191 @@ def _ensure_win_binaries_to(dir_bin: Path) -> Tuple[Path, Path]:
     return final_ffmpeg, final_ffprobe
 
 
+# -----------------------------------------------------------------------------
+# Linux auto-download (static builds)
+# -----------------------------------------------------------------------------
+def _linux_static_urls() -> dict:
+    """
+    Return URLs for Linux static builds by arch.
+    Using John Van Sickle static builds (widely used).
+    """
+    return {
+        "x86_64": [
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
+        ],
+        "aarch64": [
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz",
+        ],
+        # Fallback aliases
+        "amd64": [
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
+        ],
+        "arm64": [
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz",
+        ],
+    }
+
+
+def _ensure_linux_binaries_to(dir_bin: Path) -> Tuple[Path, Path]:
+    arch = platform.machine().lower()
+    urls_map = _linux_static_urls()
+    urls = urls_map.get(arch) or urls_map.get("x86_64")
+    if not urls:
+        raise RuntimeError(f"Unsupported Linux arch for auto-download: {arch}")
+
+    tar_path = dir_bin / "ffmpeg-linux.tar.xz"
+    _download_first_ok(urls, tar_path)
+
+    logger.info("Extracting FFmpeg (Linux)...")
+    with tarfile.open(tar_path, "r:xz") as tf:
+        members = tf.getmembers()
+        ffmpeg_member = next((m for m in members if m.name.endswith("/ffmpeg")), None)
+        ffprobe_member = next((m for m in members if m.name.endswith("/ffprobe")), None)
+        if not ffmpeg_member or not ffprobe_member:
+            raise RuntimeError("Archive does not contain ffmpeg/ffprobe.")
+        tf.extract(ffmpeg_member, dir_bin)
+        tf.extract(ffprobe_member, dir_bin)
+
+        src_ffmpeg = (dir_bin / ffmpeg_member.name).resolve()
+        src_ffprobe = (dir_bin / ffprobe_member.name).resolve()
+
+    final_ffmpeg = dir_bin / "ffmpeg"
+    final_ffprobe = dir_bin / "ffprobe"
+
+    shutil.copy2(src_ffmpeg, final_ffmpeg)
+    shutil.copy2(src_ffprobe, final_ffprobe)
+    _chmod_x(final_ffmpeg)
+    _chmod_x(final_ffprobe)
+
+    # Cleanup
+    try:
+        # remove extracted directory root if present
+        root = ffmpeg_member.name.split("/")[0]
+        shutil.rmtree(dir_bin / root, ignore_errors=True)
+        tar_path.unlink(missing_ok=True)
+    except Exception as e:
+        logger.debug(f"Cleanup warning: {e}")
+
+    logger.info(f"FFmpeg ready: {final_ffmpeg}")
+    logger.info(f"FFprobe ready: {final_ffprobe}")
+    return final_ffmpeg, final_ffprobe
+
+
+# -----------------------------------------------------------------------------
+# macOS auto-download (universal fallback)
+# -----------------------------------------------------------------------------
+def _mac_urls() -> dict:
+    """
+    Return URLs for macOS prebuilt binaries.
+    We try common mirrors; order matters. You can adjust to your preferred source.
+    """
+    return {
+        "arm64": {
+            "ffmpeg": [
+                # BtbN macOS arm64 builds (GPL). Adjust if needed.
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-macos64-arm64-gpl.zip",
+            ],
+            "ffprobe": [
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffprobe-master-latest-macos64-arm64-gpl.zip",
+            ],
+        },
+        "x86_64": {
+            "ffmpeg": [
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-macos64-gpl.zip",
+            ],
+            "ffprobe": [
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffprobe-master-latest-macos64-gpl.zip",
+            ],
+        },
+        # Fallback aliases
+        "universal": {
+            "ffmpeg": [
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-macos64-gpl.zip",
+            ],
+            "ffprobe": [
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffprobe-master-latest-macos64-gpl.zip",
+            ],
+        },
+    }
+
+
+def _ensure_macos_binaries_to(dir_bin: Path) -> Tuple[Path, Path]:
+    arch = platform.machine().lower()
+    table = _mac_urls()
+    arch_key = arch if arch in table else "universal"
+    urls_ffmpeg = table[arch_key]["ffmpeg"]
+    urls_ffprobe = table[arch_key]["ffprobe"]
+
+    ff_zip = dir_bin / "ffmpeg-mac.zip"
+    fp_zip = dir_bin / "ffprobe-mac.zip"
+
+    _download_first_ok(urls_ffmpeg, ff_zip)
+    _download_first_ok(urls_ffprobe, fp_zip)
+
+    logger.info("Extracting FFmpeg (macOS)...")
+    with zipfile.ZipFile(ff_zip, "r") as zf:
+        # Try common names
+        cand = [m for m in zf.namelist() if m.endswith("/bin/ffmpeg") or m.endswith("ffmpeg")]
+        if not cand:
+            raise RuntimeError("ffmpeg zip: ffmpeg not found.")
+        zf.extract(cand[0], dir_bin)
+        src_ffmpeg = (dir_bin / cand[0]).resolve()
+
+    with zipfile.ZipFile(fp_zip, "r") as zf:
+        cand = [m for m in zf.namelist() if m.endswith("/bin/ffprobe") or m.endswith("ffprobe")]
+        if not cand:
+            raise RuntimeError("ffprobe zip: ffprobe not found.")
+        zf.extract(cand[0], dir_bin)
+        src_ffprobe = (dir_bin / cand[0]).resolve()
+
+    final_ffmpeg = dir_bin / "ffmpeg"
+    final_ffprobe = dir_bin / "ffprobe"
+
+    shutil.copy2(src_ffmpeg, final_ffmpeg)
+    shutil.copy2(src_ffprobe, final_ffprobe)
+    _chmod_x(final_ffmpeg)
+    _chmod_x(final_ffprobe)
+
+    # Cleanup
+    try:
+        # Try to remove extracted root directories if any
+        for p in (src_ffmpeg, src_ffprobe):
+            try:
+                root = [part for part in p.parts if part.lower().startswith("ffmpeg") or part.lower().startswith("ffprobe")]
+                if root:
+                    shutil.rmtree(dir_bin / root[0], ignore_errors=True)
+            except Exception:
+                pass
+        ff_zip.unlink(missing_ok=True)
+        fp_zip.unlink(missing_ok=True)
+    except Exception as e:
+        logger.debug(f"Cleanup warning: {e}")
+
+    logger.info(f"FFmpeg ready: {final_ffmpeg}")
+    logger.info(f"FFprobe ready: {final_ffprobe}")
+    return final_ffmpeg, final_ffprobe
+
+
+# -----------------------------------------------------------------------------
+# Platform auto-download dispatcher
+# -----------------------------------------------------------------------------
 def _auto_download(dir_bin: Path) -> Tuple[Path, Path]:
     """Platform-specific download fallback."""
     if sys.platform.startswith("win"):
         return _ensure_win_binaries_to(dir_bin)
+    if sys.platform.startswith("linux"):
+        return _ensure_linux_binaries_to(dir_bin)
+    if sys.platform.startswith("darwin"):
+        return _ensure_macos_binaries_to(dir_bin)
+
     raise FileNotFoundError(
-        "FFmpeg not found and auto-download is implemented only for Windows.\n"
+        "FFmpeg not found and no auto-download available for this OS.\n"
         "Please install FFmpeg manually or set SMARTVIDEO_FFMPEG / SMARTVIDEO_FFPROBE."
     )
 
 
 # -----------------------------------------------------------------------------
-# Binary resolver
+# Binary resolver (ENV → PATH → packaged → cached → auto-download)
 # -----------------------------------------------------------------------------
 def _find_tool(name: str, env_var: str, packaged: Path, data_bin: Path) -> str:
     """Resolve binary from ENV → PATH → packaged → cached → auto-download."""
@@ -178,15 +366,10 @@ def _find_tool(name: str, env_var: str, packaged: Path, data_bin: Path) -> str:
         return str(cached)
 
     logger.info(f"{name} not found (ENV/PATH/packaged/cache). Auto-downloading...")
-    if sys.platform.startswith("win"):
-        ffmpeg_p, ffprobe_p = _auto_download(data_bin)
-        chosen = ffmpeg_p if name.startswith("ffmpeg") else ffprobe_p
-        logger.info(f"Using downloaded {name}: {chosen}")
-        return str(chosen)
-
-    raise FileNotFoundError(
-        f"{name} not found. Install FFmpeg or set {env_var} to the executable path."
-    )
+    ffmpeg_p, ffprobe_p = _auto_download(data_bin)
+    chosen = ffmpeg_p if name.startswith("ffmpeg") else ffprobe_p
+    logger.info(f"Using downloaded {name}: {chosen}")
+    return str(chosen)
 
 
 def ensure_binaries() -> Tuple[str, str]:
