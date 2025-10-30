@@ -1,0 +1,36 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Verify tag matches pyproject version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          FILE_VER=$(python - <<'PY'
+          import tomllib, pathlib
+          d=tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          print(d["project"]["version"])
+          PY
+          )
+          [ "$TAG" = "$FILE_VER" ] || { echo "Tag v$TAG ≠ pyproject version $FILE_VER"; exit 1; }
+
+      - run: uv build  
+
+      - name: Publish to PyPI via Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true

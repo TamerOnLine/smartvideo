@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-api.py — FastAPI backend for Smart Video Player
+api.py - FastAPI backend for Smart Video Player
 -----------------------------------------------
-يدير:
-- رفع الملفات
-- تحليل المدة (ffprobe)
-- استخراج مقاطع (ffmpeg)
-- تقديم ملفات الفيديو (FileResponse / StreamingResponse)
+Handles:
+- File uploads
+- Duration analysis (ffprobe)
+- Clip extraction (ffmpeg)
+- Serving video files (FileResponse / StreamingResponse)
 """
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
@@ -17,32 +17,32 @@ import shutil
 import uuid
 import os
 
-# المسارات الداخلية
-from sv.core.config import UPLOADS_DIR, OUTPUTS_DIR
-from sv.core.services.process import run_ffmpeg_extract_clip, probe_duration
+# Internal paths
+from smartvideo.sv.core.config import UPLOADS_DIR, OUTPUTS_DIR
+from smartvideo.sv.core.services.process import run_ffmpeg_extract_clip, probe_duration
 
 # -------------------------------------------------------------
-# ⚙️ إعداد التطبيق
+# App setup
 # -------------------------------------------------------------
 app = FastAPI(title="Smart Video API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # غيّرها لاحقًا للأمان
+    allow_origins=["*"],  # Consider restricting this in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -------------------------------------------------------------
-# 🔍 نقطة اختبار
+# Health check endpoint
 # -------------------------------------------------------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 # -------------------------------------------------------------
-# ⬆️ رفع الفيديو
+# Video upload endpoint
 # -------------------------------------------------------------
 @app.post("/upload")
 async def upload_video(file: UploadFile = File(...)):
@@ -53,20 +53,17 @@ async def upload_video(file: UploadFile = File(...)):
     if ext not in {".mp4", ".mkv", ".avi", ".mov"}:
         raise HTTPException(status_code=400, detail=f"Unsupported format: {ext}")
 
-    # اسم فريد للملف
     vid_id = uuid.uuid4().hex
     dest = UPLOADS_DIR / f"{vid_id}{ext}"
 
-    # حفظ الملف
     with dest.open("wb") as out:
         shutil.copyfileobj(file.file, out)
 
-    # تحليل المدة
     dur = probe_duration(dest)
     return {"id": vid_id, "path": str(dest), "duration": dur, "ext": ext}
 
 # -------------------------------------------------------------
-# ✂️ استخراج مقطع
+# Clip extraction endpoint
 # -------------------------------------------------------------
 @app.post("/extract")
 def extract_clip(
@@ -86,7 +83,7 @@ def extract_clip(
     return {"output": out_name, "path": str(dst)}
 
 # -------------------------------------------------------------
-# 📦 تحميل المقاطع المولدة
+# Serve generated clips
 # -------------------------------------------------------------
 @app.get("/outputs/{filename}")
 def get_output(filename: str):
@@ -96,7 +93,7 @@ def get_output(filename: str):
     return FileResponse(fp, media_type="video/mp4")
 
 # -------------------------------------------------------------
-# 🎞️ تقديم ملفات الرفع لتشغيل الفيديو في المتصفح
+# Serve uploaded videos
 # -------------------------------------------------------------
 @app.get("/uploads/{filename}")
 def get_upload(filename: str):
@@ -106,7 +103,7 @@ def get_upload(filename: str):
     return FileResponse(fp, media_type="video/mp4")
 
 # -------------------------------------------------------------
-# ⚙️ دفق ملفات الفيديو (Streaming / Range requests)
+# Stream uploaded videos (supports range requests)
 # -------------------------------------------------------------
 @app.get("/uploads/stream/{filename}")
 def stream_upload(filename: str, request: Request):
@@ -120,7 +117,6 @@ def stream_upload(filename: str, request: Request):
     end = file_size - 1
 
     if range_header:
-        # مثال: Range: bytes=1000-
         _, rng = range_header.split("=")
         parts = rng.split("-")
         start = int(parts[0]) if parts[0] else 0

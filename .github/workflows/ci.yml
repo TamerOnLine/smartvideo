@@ -1,10 +1,16 @@
-name: Run tests
-on: [push, pull_request]
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
 jobs:
-  test:
+  build-test:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -12,14 +18,36 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies (if any)
-        run: |
-          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+      - name: Set up uv (fast Python package manager)
+        uses: astral-sh/setup-uv@v3
 
-      - name: Run unit tests
+      # Option 3: try venv first; if that fails, fall back to system install.
+      - name: Ensure environment and install project
         run: |
-          # Ensure CI uses local repo code for imports and subprocesses
-          export PYTHONPATH="$GITHUB_WORKSPACE:$PYTHONPATH"
-          # (Optional) remove any installed package that might shadow local code
-          pip uninstall -y reposmith-tol || true
-          python -m unittest discover -s tests -v
+          # Try to create a virtual environment (no-op if it already exists)
+          uv venv || echo "Virtual env already exists or not supported."
+
+          # Try installing into the venv; if it fails, install into the system
+          uv pip install -e .[web] --link-mode=copy || uv pip install -e .[web] --system --link-mode=copy
+
+      # Skip tests if the 'tests' directory does not exist
+      - name: Run tests (if present)
+        run: |
+          if [ -d tests ]; then
+            python -m unittest discover -s tests -t .
+          else
+            echo "No tests/ directory; skipping."
+          fi
+
+      - name: Build package with uv
+        run: uv build
+
+      - name: List build artifacts
+        run: ls -lh dist
+
+      # Optional: upload artifacts so you can download wheels/sdists from the CI run
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/**

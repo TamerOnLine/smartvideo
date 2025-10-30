@@ -3,11 +3,20 @@ import streamlit.components.v1 as components
 
 def html5_player(url: str, height: int = 360):
     """
-    ي嵌ن فيديو HTML5 مع مفاتيح اختصار:
-    J/L = ±10s, K = Play/Pause, ←/→ = ±5s, [/] = ±0.25x
+    Embed an HTML5 video player with keyboard shortcuts.
+
+    Keyboard shortcuts:
+    - J/L: Skip ±10 seconds
+    - K: Play/Pause
+    - ←/→: Skip ±5 seconds
+    - [/]: Adjust playback speed ±0.25x
+
+    Args:
+        url (str): URL of the video file.
+        height (int, optional): Height of the player in pixels. Defaults to 360.
     """
     html = f"""
-    <video id="vid" src="{url}" controls style="width:100%; height:auto; outline:none;"></video>
+    <video id=\"vid\" src=\"{url}\" controls style=\"width:100%; height:auto; outline:none;\"></video>
     <script>
     const v = document.getElementById('vid');
     document.addEventListener('keydown', (e) => {{

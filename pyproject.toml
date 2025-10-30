@@ -1,11 +1,12 @@
 [project]
-name = "smart-video"
+name = "smartvideo"
 version = "0.1.0"
-description = "Smart Video Player: FastAPI backend + Streamlit UI + HTML5 player"
+description = "🎬 Smart Video Player — FastAPI backend + Streamlit UI + HTML5 player"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Tamer", email = "you@example.com" }]
 license = { text = "MIT" }
+keywords = ["video", "fastapi", "streamlit", "ffmpeg", "media", "player"]
 
 dependencies = [
   "fastapi>=0.115",
@@ -28,16 +29,29 @@ dev = [
   "httpx>=0.27",
 ]
 
+# 🔹 Executable scripts (CLI)
 [project.scripts]
-sv-api = "sv.cli:run_api"
-sv-ui  = "sv.cli:run_ui"
+svapi = "smartvideo.sv.cli:run_api"
+svui  = "smartvideo.sv.cli:run_ui"
 
+# 🔹 Documentation links (optional)
+[project.urls]
+Homepage = "https://github.com/TamerOnLine/smartvideo"
+Issues = "https://github.com/TamerOnLine/smartvideo/issues"
+
+# 🔹 uv settings
 [tool.uv]
 package = true
 
+# 🔹 Build system (setuptools)
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# 🔹 Where to find the source code
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# 🔹 Include bundled binaries (ffmpeg, ffprobe) inside the package
+[tool.setuptools.package-data]
+"smartvideo" = ["bin/*"]

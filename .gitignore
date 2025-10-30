@@ -173,3 +173,4 @@ bin/
 uv.lock
 data/
 .streamlit/secrets.toml
+tools/
