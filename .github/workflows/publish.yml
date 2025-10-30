@@ -45,9 +45,14 @@ jobs:
       - name: Build (wheel + sdist)
         run: uv build
 
-      - name: Smoke test the wheel
+      - name: Create venv
+        run: uv venv
+
+      - name: Smoke test the wheel (venv)
+        shell: bash
         run: |
-          uv pip install --system --force-reinstall dist/*.whl
+          source .venv/bin/activate
+          uv pip install --force-reinstall dist/*.whl
           python -c "import smartvideo; print('✅ SmartVideo import OK')"
 
       - name: Publish to PyPI (Trusted Publishing)
