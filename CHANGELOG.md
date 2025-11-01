@@ -5,6 +5,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.1.7] - 2025-11-01
+### Added
+- Added professional and comprehensive README documentation (English).
+- Added separate export files for README and CHANGELOG in /mnt/data.
+- Added detailed feature breakdown and roadmap section.
+Chan
+
+### Changed
+- Updated project version references to v0.1.7 across docs and metadata.
+- Improved overall documentation structure for clarity and PyPI readability.
+- Simplified formatting of tables and code blocks in README. 
+
+### Fixed
+- Fixed minor typos and markdown inconsistencies in previous README versions.
+- Ensured links and badges point to correct GitHub Actions workflows.
+- Verified internal consistency between README, CHANGELOG, and pyproject.toml.
+
+---
+
 ## [0.1.6] - 2025-10-30
 ### Added
 - Added automatic FFmpeg/FFprobe download for **Linux** and **macOS** (static builds & universal binaries).
